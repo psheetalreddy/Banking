@@ -51,7 +51,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $pdo->commit();
                 audit('register', $uid);
-                set_flash('success', 'Account created! Please log in.');
+                
+                // Send verification email
+                send_otp($uid, 'email_verification');
+                
+                set_flash('success', 'Account created! A verification email has been sent.');
                 redirect('/Banking/auth/login.php');
             } catch (Throwable $e) {
                 $pdo->rollBack();

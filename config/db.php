@@ -1,7 +1,25 @@
 <?php
 /**
  * Database connection – PDO singleton
+ * Load .env file for configuration
  */
+
+// Load Composer autoloader for PHPMailer and other dependencies
+if (file_exists(__DIR__ . '/../vendor/autoload.php')) {
+    require_once __DIR__ . '/../vendor/autoload.php';
+}
+
+// Load .env file if it exists
+if (file_exists(__DIR__ . '/../.env')) {
+    $lines = file(__DIR__ . '/../.env', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    foreach ($lines as $line) {
+        if (str_starts_with($line, '#')) continue; // Skip comments
+        if (!str_contains($line, '=')) continue;
+        [$key, $value] = explode('=', $line, 2);
+        $_ENV[trim($key)] = trim($value);
+    }
+}
+
 define('DB_HOST', 'localhost');
 define('DB_NAME', 'banking_db');
 define('DB_USER', 'root');

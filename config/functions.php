@@ -33,8 +33,9 @@ function generate_otp(): string {
 }
 
 /**
- * "Send" OTP – in demo mode stores it in otp_log and puts it in session
- * so the UI can display it. Replace this with a real SMS gateway call.
+ * Send OTP via email using PHPMailer and SMTP
+ * Requires: composer require phpmailer/phpmailer
+ * Configuration: check config/mail.php
  */
 function send_otp(int $user_id, string $purpose = 'login'): string {
     $pdo  = get_db();
@@ -50,8 +51,57 @@ function send_otp(int $user_id, string $purpose = 'login'): string {
          VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 10 MINUTE))"
     )->execute([$user_id, $code, $purpose]);
 
-    // Demo: store in session so we can show it on screen
-    $_SESSION['demo_otp'] = $code;
+    // Get user email
+    $stmt = $pdo->prepare("SELECT u.email, c.first_name FROM users u JOIN customers c USING(user_id) WHERE u.user_id=?");
+    $stmt->execute([$user_id]);
+    $user = $stmt->fetch();
+
+    if ($user && $user['email']) {
+        try {
+            $mailConfig = require __DIR__ . '/mail.php';
+            $smtpConfig = $mailConfig['smtp'];
+            $otpConfig  = $mailConfig['otp'];
+
+            // PHPMailer
+            $mail = new \PHPMailer\PHPMailer\PHPMailer();
+            $mail->isSMTP();
+            $mail->Host       = $smtpConfig['host'];
+            $mail->SMTPAuth   = true;
+            $mail->Username   = $smtpConfig['username'];
+            $mail->Password   = $smtpConfig['password'];
+            $mail->SMTPSecure = $smtpConfig['encryption'];
+            $mail->Port       = $smtpConfig['port'];
+
+            $mail->setFrom($smtpConfig['from_email'], $smtpConfig['from_name']);
+            $mail->addAddress($user['email'], $user['first_name']);
+            $mail->Subject = $otpConfig['subject'];
+
+            // HTML email body
+            $mail->isHTML(true);
+            $mail->Body = "
+                <div style='font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto;'>
+                    <h2>ArcaBank OTP Verification</h2>
+                    <p>Hi {$user['first_name']},</p>
+                    <p>Your one-time password (OTP) for {$purpose} is:</p>
+                    <div style='background: #f5f5f5; padding: 20px; text-align: center; border-radius: 8px; margin: 20px 0;'>
+                        <h1 style='font-size: 32px; letter-spacing: 5px; color: #d4a843; margin: 0;'>{$code}</h1>
+                    </div>
+                    <p style='color: #666;'>This OTP is valid for " . $otpConfig['expiry_minutes'] . " minutes.</p>
+                    <p style='color: #666;'><strong>Do not share this code with anyone.</strong></p>
+                    <hr style='border: none; border-top: 1px solid #eee; margin: 20px 0;'>
+                    <p style='color: #999; font-size: 12px;'>If you didn't request this, please ignore this email.</p>
+                </div>
+            ";
+
+            $mail->AltBody = "Your OTP is: {$code}. Valid for {$otpConfig['expiry_minutes']} minutes. Do not share this code.";
+
+            if (!$mail->send()) {
+                error_log("OTP email failed for user {$user_id}: " . $mail->ErrorInfo);
+            }
+        } catch (Throwable $e) {
+            error_log("OTP send error for user {$user_id}: " . $e->getMessage());
+        }
+    }
 
     return $code;
 }
