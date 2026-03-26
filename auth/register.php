@@ -14,14 +14,18 @@ $success = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $first    = sanitize($_POST['first_name'] ?? '');
     $last     = sanitize($_POST['last_name']  ?? '');
-    $email    = filter_input(INPUT_POST, 'email', FILTER_VALIDATE_EMAIL);
+    $email    = strtolower(trim($_POST['email'] ?? ''));
+    // Validate email format strictly: RFC 5322 compliant
+    $email    = filter_var($email, FILTER_VALIDATE_EMAIL) && preg_match('/^[a-z0-9][a-z0-9._%+-]*@[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/i', $email) ? $email : false;
     $mobile   = preg_replace('/\D/', '', $_POST['mobile'] ?? '');
     $dob      = $_POST['dob'] ?? '';
     $password = $_POST['password'] ?? '';
     $confirm  = $_POST['confirm_password'] ?? '';
 
     if (!$first || !$last || !$email || !$mobile || !$dob || !$password) {
-        $error = 'All fields are required.';
+        $error = !isset($_POST['email']) || !$_POST['email'] 
+            ? 'All fields are required.'
+            : 'Please enter a valid email address (e.g., name@example.com).';
     } elseif (strlen($mobile) != 10) {
         $error = 'Mobile number must be exactly 10 digits.';
     } elseif ($dob > date('Y-m-d')) {
@@ -110,7 +114,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       <div class="form-group">
         <label class="form-label">Email Address</label>
         <input type="email" name="email" class="form-control" required
-               value="<?= htmlspecialchars($_POST['email'] ?? '') ?>" placeholder="you@example.com">
+               value="<?= htmlspecialchars(strtolower($_POST['email'] ?? '')) ?>" placeholder="you@example.com">
+        <div class="form-hint">Standard format: name@domain.com (only letters, numbers, dots, hyphens)</div>
       </div>
 
       <div class="form-row">
