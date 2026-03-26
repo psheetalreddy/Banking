@@ -1,0 +1,2 @@
+# Protect uploads and sql directories from direct browser access
+Options -Indexes
