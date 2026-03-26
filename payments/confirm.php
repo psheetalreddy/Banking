@@ -44,9 +44,44 @@ if (!$error && $from_acc['balance'] < $amount) {
              '. Available: ' . fmt_inr($from_acc['balance']);
 }
 
-$confirmed = isset($_POST['confirm']) && $_POST['confirm'] === '1';
+// Handle OTP request
+$send_otp = isset($_POST['send_otp']) && $_POST['send_otp'] === '1';
+$otpError = '';
+$otpSent = false;
+
+if (!$error && $send_otp) {
+    // Store payment details in session for OTP verification
+    $_SESSION['payment_pending'] = [
+        'from_id' => $from_id,
+        'to_id' => $to_id,
+        'amount' => $amount
+    ];
+    send_otp($uid, 'payment');
+    $otpSent = true;
+    audit('payment_otp_requested', $uid);
+}
+
+// Handle OTP verification
+$verify_otp = isset($_POST['verify_otp']) && $_POST['verify_otp'] === '1';
+$confirmed = false;
+
+if (!$error && $otpSent === false && isset($_POST['otp_code'])) {
+    $otp_code = preg_replace('/\D/', '', $_POST['otp_code'] ?? '');
+    
+    if (strlen($otp_code) !== 6) {
+        $otpError = 'Please enter the complete 6-digit OTP.';
+    } elseif (!verify_otp($uid, $otp_code, 'payment')) {
+        $otpError = 'Invalid or expired OTP. Please try again or request a new one.';
+        audit('payment_otp_failed', $uid);
+    } else {
+        $confirmed = true;
+    }
+}
 
 if (!$error && $confirmed) {
+    // Clear pending payment from session
+    unset($_SESSION['payment_pending']);
+    
     $pdo->beginTransaction();
     try {
         $ref = 'PAY' . strtoupper(uniqid());
@@ -88,7 +123,31 @@ if (!$error && $confirmed) {
         $to_acc['balance']   = $new_to_bal;
         $to_acc['last_payment'] = $amount;
         $to_acc['last_payment_date'] = $now;
-        ?>
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        $error = 'Payment processing failed. Please try again.';
+    }
+}
+
+// Determine which page to show
+if ($error):
+    // Show error page
+?>
+
+<!-- ─── ERROR PAGE ─── -->
+<main class="page-wrapper" style="max-width:600px">
+  <h1 class="page-title"><i class="bi bi-credit-card"></i> Payment Review</h1>
+  <div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> <?= htmlspecialchars($error) ?></div>
+  <a href="/Banking/payments/index.php" class="btn btn-outline mt-1">
+    <i class="bi bi-arrow-left"></i> Go Back
+  </a>
+</main>
+
+<?php require_once __DIR__ . '/../layout/footer.php';
+
+elseif (!$error && $confirmed):
+    // Payment was successful - show success page
+?>
 
 <!-- ─── SUCCESS PAGE ─── -->
 <main class="page-wrapper" style="max-width:600px">
@@ -134,25 +193,75 @@ if (!$error && $confirmed) {
 </main>
 
 <?php require_once __DIR__ . '/../layout/footer.php';
-    } catch (Throwable $e) {
-        $pdo->rollBack();
-        $error = 'Payment processing failed. Please try again.';
-    }
-}
 
-if ($error || !$confirmed):
+elseif ($otpSent && !$confirmed):
+    // Waiting for OTP verification - show OTP entry page
 ?>
 
-<!-- ─── REVIEW / ERROR PAGE ─── -->
+<!-- ─── OTP VERIFICATION PAGE ─── -->
+<main class="page-wrapper" style="max-width:600px">
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title"><i class="bi bi-shield-lock"></i> Verify Payment with OTP</span>
+    </div>
+
+    <div style="text-align:center;margin-bottom:1.5rem">
+      <i class="bi bi-envelope-open" style="font-size:2.5rem;color:var(--gold);margin-bottom:.5rem"></i>
+      <p class="text-muted">We've sent a 6-digit OTP to your registered email address.</p>
+    </div>
+
+    <form method="POST" style="max-width:400px;margin:0 auto">
+      <input type="hidden" name="to_account_id"   value="<?= $to_id ?>">
+      <input type="hidden" name="from_account_id" value="<?= $from_id ?>">
+      <input type="hidden" name="amount"           value="<?= $amount ?>">
+
+      <?php if ($otpError): ?>
+        <div class="alert alert-danger mb-2"><i class="bi bi-exclamation-triangle"></i> <?= htmlspecialchars($otpError) ?></div>
+      <?php endif; ?>
+
+      <div class="form-group">
+        <label class="form-label">Enter 6-Digit OTP</label>
+        <input type="text" name="otp_code" class="form-control" 
+               placeholder="000000" maxlength="6" 
+               inputmode="numeric" style="text-align:center;font-size:1.25rem;letter-spacing:8px;font-family:monospace"
+               required autofocus>
+        <div class="form-hint" style="text-align:center">
+          Check your email or spam folder
+        </div>
+      </div>
+
+      <div style="display:flex;gap:.75rem;justify-content:center;margin-top:1.5rem">
+        <a href="/Banking/payments/index.php" class="btn btn-outline">
+          <i class="bi bi-x-circle"></i> Cancel
+        </a>
+        <button type="submit" class="btn btn-primary">
+          <i class="bi bi-check-circle"></i> Verify & Pay
+        </button>
+      </div>
+    </form>
+
+    <div style="text-align:center;margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border)">
+      <p class="text-muted" style="font-size:.85rem">Didn't receive OTP?</p>
+      <form method="POST" style="display:inline">
+        <input type="hidden" name="to_account_id"   value="<?= $to_id ?>">
+        <input type="hidden" name="from_account_id" value="<?= $from_id ?>">
+        <input type="hidden" name="amount"           value="<?= $amount ?>">
+        <input type="hidden" name="send_otp"         value="1">
+        <button type="submit" class="btn btn-link">Resend OTP</button>
+      </form>
+    </div>
+  </div>
+</main>
+
+<?php require_once __DIR__ . '/../layout/footer.php';
+
+else:
+    // Show payment review page (initial state - waiting for user to send OTP)
+?>
+
+<!-- ─── REVIEW PAGE ─── -->
 <main class="page-wrapper" style="max-width:600px">
   <h1 class="page-title"><i class="bi bi-credit-card"></i> Payment Review</h1>
-
-  <?php if ($error): ?>
-    <div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> <?= htmlspecialchars($error) ?></div>
-    <a href="/Banking/payments/index.php" class="btn btn-outline mt-1">
-      <i class="bi bi-arrow-left"></i> Go Back
-    </a>
-  <?php else: ?>
 
   <div class="card mb-2">
     <table style="width:100%;border-collapse:collapse">
@@ -183,7 +292,7 @@ if ($error || !$confirmed):
     <input type="hidden" name="to_account_id"   value="<?= $to_id ?>">
     <input type="hidden" name="from_account_id" value="<?= $from_id ?>">
     <input type="hidden" name="amount"           value="<?= $amount ?>">
-    <input type="hidden" name="confirm"          value="1">
+    <input type="hidden" name="send_otp"         value="1">
 
     <div style="display:flex;gap:.75rem;justify-content:flex-end">
       <a href="/Banking/payments/index.php" class="btn btn-outline">
@@ -191,12 +300,12 @@ if ($error || !$confirmed):
       </a>
       <button type="submit" class="btn btn-primary btn-lg"
               <?= $from_acc['balance'] < $amount ? 'disabled' : '' ?>>
-        <i class="bi bi-check-circle"></i> Confirm Payment
+        <i class="bi bi-shield-check"></i> Send OTP
       </button>
     </div>
   </form>
-  <?php endif; ?>
 </main>
 
-<?php require_once __DIR__ . '/../layout/footer.php'; ?>
-<?php endif; ?>
+<?php require_once __DIR__ . '/../layout/footer.php';
+endif;
+?>

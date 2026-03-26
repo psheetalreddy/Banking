@@ -19,8 +19,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (!$name || !$bank || !$accno || !$ifsc) {
         $error = 'Payee name, bank name, account number, and IFSC code are required.';
-    } elseif (!preg_match('/^[A-Z]{4}0[A-Z0-9]{6}$/', $ifsc)) {
-        $error = 'Enter a valid IFSC code (e.g. HDFC0001234).';
+    } elseif (!preg_match('/^ARCA0[A-Z0-9]{2}\d{4}$/', $ifsc)) {
+        $error = 'Enter a valid IFSC code (e.g. ARCA0001234).';
+    } elseif (!preg_match('/^[A-Z]{3}\d{10}$/', $accno)) {
+        $error = 'Enter a valid account number (e.g. SAV0009876543).';
     } else {
         $pdo->prepare(
             "INSERT INTO payees (user_id, payee_name, bank_name, branch_name, account_number, ifsc_code)
@@ -57,7 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="form-group">
           <label class="form-label">Bank Name *</label>
           <input type="text" name="bank_name" class="form-control" required
-                 value="<?= htmlspecialchars($_POST['bank_name'] ?? '') ?>" placeholder="HDFC Bank">
+                 value="<?= htmlspecialchars($_POST['bank_name'] ?? '') ?>" placeholder="ARCA Bank">
         </div>
       </div>
 
@@ -65,13 +67,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="form-group">
           <label class="form-label">Branch Name</label>
           <input type="text" name="branch_name" class="form-control"
-                 value="<?= htmlspecialchars($_POST['branch_name'] ?? '') ?>" placeholder="Koramangala, Bengaluru">
+                 value="<?= htmlspecialchars($_POST['branch_name'] ?? '') ?>" placeholder="Chennai">
         </div>
         <div class="form-group">
           <label class="form-label">IFSC Code *</label>
           <input type="text" name="ifsc_code" class="form-control" required
                  value="<?= htmlspecialchars($_POST['ifsc_code'] ?? '') ?>"
-                 placeholder="HDFC0001234" maxlength="11" style="text-transform:uppercase">
+                 placeholder="ARCA0001234" maxlength="11" style="text-transform:uppercase">
           <div class="form-hint">Format: AAAA0XXXXXX</div>
         </div>
       </div>
@@ -80,13 +82,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <label class="form-label">Account Number *</label>
         <input type="text" name="account_number" class="form-control" required
                value="<?= htmlspecialchars($_POST['account_number'] ?? '') ?>"
-               placeholder="50100123456789" class="monospace">
+               placeholder="SAV0009876543" maxlength="13" class="monospace" style="text-transform:uppercase">
       </div>
 
       <div class="form-group">
         <label class="form-label">Confirm Account Number *</label>
-        <input type="text" class="form-control" placeholder="Re-enter account number"
-               oninput="checkAccMatch(this)" class="monospace">
+        <input type="text" class="form-control" placeholder="SAV0009876543"
+               oninput="checkAccMatch(this)" maxlength="13" class="monospace" style="text-transform:uppercase">
         <div id="acc-match-msg" class="form-hint"></div>
       </div>
 

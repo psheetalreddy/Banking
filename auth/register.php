@@ -22,8 +22,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (!$first || !$last || !$email || !$mobile || !$dob || !$password) {
         $error = 'All fields are required.';
-    } elseif (strlen($mobile) < 10) {
-        $error = 'Enter a valid 10-digit mobile number.';
+    } elseif (strlen($mobile) != 10) {
+        $error = 'Mobile number must be exactly 10 digits.';
+    } elseif ($dob > date('Y-m-d')) {
+        $error = 'Date of birth cannot be in the future.';
+    } elseif ((new DateTime($dob))->diff(new DateTime())->y < 18) {
+        $error = 'You must be at least 18 years old to register.';
     } elseif (!preg_match('/^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/', $password)) {
         $error = 'Password must be at least 8 characters with 1 uppercase, 1 number, and 1 special character.';
     } elseif ($password !== $confirm) {
