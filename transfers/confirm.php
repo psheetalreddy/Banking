@@ -45,6 +45,9 @@ if (!$error) {
 
 $confirmed = isset($_POST['confirm']) && $_POST['confirm'] === '1';
 
+$require_otp = false;
+$otp_error   = '';
+
 if (!$error && $confirmed) {
     // Check transfer amount
     if ($amount <= 100) {
@@ -52,44 +55,55 @@ if (!$error && $confirmed) {
     } elseif ($from_acc['balance'] < $amount) {
         $error = 'Insufficient balance. Available balance: ' . fmt_inr($from_acc['balance']);
     } else {
-        $pdo->beginTransaction();
-        try {
-            $new_balance = $from_acc['balance'] - $amount;
-            $ref = 'TFR' . strtoupper(uniqid());
+        $otp_code    = preg_replace('/\D/', '', $_POST['otp_code'] ?? '');
+        $verify_step = ($_POST['verify_step'] ?? '') === '1';
 
-            // Debit source account
-            $pdo->prepare(
-                "UPDATE accounts SET balance=balance-? WHERE account_id=?"
-            )->execute([$amount, $from_id]);
+        if (!$verify_step) {
+            send_otp($uid, 'transaction');
+            $require_otp = true;
+        } elseif (!verify_otp($uid, $otp_code, 'transaction')) {
+            $otp_error = 'Invalid or expired OTP. Please try again.';
+            $require_otp = true;
+        } else {
+            $pdo->beginTransaction();
+            try {
+                $new_balance = $from_acc['balance'] - $amount;
+                $ref = 'TFR' . strtoupper(uniqid());
 
-            // Insert transaction
-            $pdo->prepare(
-                "INSERT INTO transactions
-                 (account_id, txn_type, amount, balance_after, description, reference, txn_date)
-                 VALUES (?, 'debit', ?, ?, ?, ?, ?)"
-            )->execute([
-                $from_id, $amount, $new_balance,
-                "Fund Transfer to {$payee['payee_name']} – " . ($remarks ?: 'Transfer'),
-                $ref, $date . ' 00:00:00'
-            ]);
-
-            // Standing instruction
-            if ($is_si) {
+                // Debit source account
                 $pdo->prepare(
-                    "INSERT INTO standing_instructions
-                     (user_id, from_account_id, payee_id, amount, periodicity, total_instances, next_run_date)
-                     VALUES (?, ?, ?, ?, ?, ?, ?)"
-                )->execute([$uid, $from_id, $payee_id, $amount, $period, $instances, $date]);
+                    "UPDATE accounts SET balance=balance-? WHERE account_id=?"
+                )->execute([$amount, $from_id]);
+
+                // Insert transaction
+                $pdo->prepare(
+                    "INSERT INTO transactions
+                     (account_id, txn_type, amount, balance_after, description, reference, txn_date)
+                     VALUES (?, 'debit', ?, ?, ?, ?, ?)"
+                )->execute([
+                    $from_id, $amount, $new_balance,
+                    "Fund Transfer to {$payee['payee_name']} – " . ($remarks ?: 'Transfer'),
+                    $ref, $date . ' 00:00:00'
+                ]);
+
+                // Standing instruction
+                if ($is_si) {
+                    $pdo->prepare(
+                        "INSERT INTO standing_instructions
+                         (user_id, from_account_id, payee_id, amount, periodicity, total_instances, next_run_date)
+                         VALUES (?, ?, ?, ?, ?, ?, ?)"
+                    )->execute([$uid, $from_id, $payee_id, $amount, $period, $instances, $date]);
+                }
+
+                $pdo->commit();
+                audit('fund_transfer_otp', $uid);
+
+                set_flash('success', 'Transfer of ' . fmt_inr($amount) . ' to ' . $payee['payee_name'] . ' confirmed! Ref: ' . $ref);
+                redirect('/Banking/dashboard.php');
+            } catch (Throwable $e) {
+                $pdo->rollBack();
+                $error = 'Transfer failed. Please try again.';
             }
-
-            $pdo->commit();
-            audit('fund_transfer', $uid);
-
-            set_flash('success', 'Transfer of ' . fmt_inr($amount) . ' to ' . $payee['payee_name'] . ' confirmed! Ref: ' . $ref);
-            redirect('/Banking/dashboard.php');
-        } catch (Throwable $e) {
-            $pdo->rollBack();
-            $error = 'Transfer failed. Please try again.';
         }
     }
 }
@@ -103,6 +117,52 @@ if (!$error && $confirmed) {
     <a href="/Banking/transfers/index.php" class="btn btn-outline mt-2">
       <i class="bi bi-arrow-left"></i> Go Back
     </a>
+  <?php elseif ($require_otp): ?>
+    <div class="card" style="padding:2.5rem; text-align:center;">
+      <div style="width:64px;height:64px;border-radius:50%;background:rgba(212,168,67,.15);
+                  display:flex;align-items:center;justify-content:center;margin:0 auto 1.5rem">
+        <i class="bi bi-shield-lock" style="font-size:2rem;color:var(--gold)"></i>
+      </div>
+      <h2 style="font-family:'Outfit',sans-serif;font-size:1.4rem;font-weight:700;margin-bottom:.5rem">
+        Verification Required
+      </h2>
+      <p class="text-muted" style="margin-bottom:1.5rem; font-size:.9rem;">
+        Please enter the 6-digit OTP sent to your registered email to complete the fund transfer of <strong><?= fmt_inr($amount) ?></strong>.
+      </p>
+
+      <?php if ($otp_error): ?>
+        <div class="alert alert-danger" style="text-align:left; font-size:.85rem; margin-bottom:1rem;">
+          <i class="bi bi-exclamation-triangle"></i> <?= htmlspecialchars($otp_error) ?>
+        </div>
+      <?php endif; ?>
+
+      <form method="POST">
+        <input type="hidden" name="from_account"  value="<?= $from_id ?>">
+        <input type="hidden" name="payee_id"      value="<?= $payee_id ?>">
+        <input type="hidden" name="amount"        value="<?= $amount ?>">
+        <input type="hidden" name="transfer_date" value="<?= htmlspecialchars($date) ?>">
+        <input type="hidden" name="remarks"       value="<?= htmlspecialchars($remarks) ?>">
+        <input type="hidden" name="periodicity"   value="<?= htmlspecialchars($period) ?>">
+        <input type="hidden" name="instances"     value="<?= $is_si ? $instances : 0 ?>">
+        <input type="hidden" name="confirm"       value="1">
+        <input type="hidden" name="verify_step"   value="1">
+
+        <div class="form-group" style="text-align:left;">
+          <label class="form-label">Enter OTP</label>
+          <input type="text" name="otp_code" class="form-control" 
+                 pattern="\d{6}" maxlength="6" inputmode="numeric" 
+                 placeholder="▪ ▪ ▪ ▪ ▪ ▪" required autofocus
+                 style="letter-spacing: .5rem; font-size: 1.25rem; font-family: monospace; text-align: center;">
+        </div>
+
+        <div style="display:flex;gap:.75rem;margin-top:1.5rem;">
+          <a href="/Banking/transfers/index.php" class="btn btn-outline" style="flex:1;">Cancel</a>
+          <button type="submit" class="btn btn-primary" style="flex:1;">
+            <i class="bi bi-check-circle"></i> Verify & Transfer
+          </button>
+        </div>
+      </form>
+    </div>
   <?php else: ?>
 
   <!-- Summary Card -->

@@ -51,65 +51,82 @@ if (!$error) {
 }
 
 // ── Process on confirmed POST ─────────────────────────────
+$require_otp = false;
+$otp_error   = '';
+
 if (!$error && $confirm) {
     if ($from_acc['balance'] < $amount) {
         $error = 'Insufficient balance in ' . $from_acc['account_name'] .
                  '. Available: ' . fmt_inr($from_acc['balance']);
     } else {
-        $pdo->beginTransaction();
-        try {
-            $ref = 'PAY' . strtoupper(uniqid());
-            $now = date('Y-m-d H:i:s');
+        $otp_code    = preg_replace('/\D/', '', $_POST['otp_code'] ?? '');
+        $verify_step = ($_POST['verify_step'] ?? '') === '1';
 
-            $new_from_bal = $from_acc['balance'] - $amount;
-            $new_to_bal   = $to_acc['balance'] + $amount;
+        if (!$verify_step) {
+            // Step 1: User just clicked "Confirm Payment". Send OTP.
+            send_otp($uid, 'transaction');
+            $require_otp = true;
+        } elseif (!verify_otp($uid, $otp_code, 'transaction')) {
+            // Step 2: Invalid OTP submitted
+            $otp_error = 'Invalid or expired OTP. Please try again.';
+            $require_otp = true;
+        } else {
+            // OTP is valid. Proceed with transaction.
+            $pdo->beginTransaction();
+            try {
+                $ref = 'PAY' . strtoupper(uniqid());
+                $now = date('Y-m-d H:i:s');
 
-            // Debit source account
-            $pdo->prepare("UPDATE accounts SET balance=balance-? WHERE account_id=?")
-                ->execute([$amount, $from_id]);
+                $new_from_bal = $from_acc['balance'] - $amount;
+                $new_to_bal   = $to_acc['balance'] + $amount;
 
-            // Credit CC/HL (reduces outstanding balance toward 0)
-            $pdo->prepare(
-                "UPDATE accounts SET balance=balance+?, last_payment=?, last_payment_date=NOW()
-                 WHERE account_id=?"
-            )->execute([$amount, $amount, $to_id]);
+                // Debit source account
+                $pdo->prepare("UPDATE accounts SET balance=balance-? WHERE account_id=?")
+                    ->execute([$amount, $from_id]);
 
-            // Transaction records
-            $pdo->prepare(
-                "INSERT INTO transactions
-                 (account_id, txn_type, amount, balance_after, description, reference, txn_date)
-                 VALUES (?, 'debit', ?, ?, ?, ?, ?)"
-            )->execute([
-                $from_id, $amount, $new_from_bal,
-                "Payment towards {$to_acc['account_name']}", $ref, $now
-            ]);
-            $pdo->prepare(
-                "INSERT INTO transactions
-                 (account_id, txn_type, amount, balance_after, description, reference, txn_date)
-                 VALUES (?, 'credit', ?, ?, ?, ?, ?)"
-            )->execute([
-                $to_id, $amount, $new_to_bal,
-                "Payment received from {$from_acc['account_name']}", $ref, $now
-            ]);
+                // Credit CC/HL (reduces outstanding balance toward 0)
+                $pdo->prepare(
+                    "UPDATE accounts SET balance=balance+?, last_payment=?, last_payment_date=NOW()
+                     WHERE account_id=?"
+                )->execute([$amount, $amount, $to_id]);
 
-            // Payment record
-            $pdo->prepare(
-                "INSERT INTO payments (user_id, from_account_id, to_account_id, amount)
-                 VALUES (?, ?, ?, ?)"
-            )->execute([$uid, $from_id, $to_id, $amount]);
+                // Transaction records
+                $pdo->prepare(
+                    "INSERT INTO transactions
+                     (account_id, txn_type, amount, balance_after, description, reference, txn_date)
+                     VALUES (?, 'debit', ?, ?, ?, ?, ?)"
+                )->execute([
+                    $from_id, $amount, $new_from_bal,
+                    "Payment towards {$to_acc['account_name']}", $ref, $now
+                ]);
+                $pdo->prepare(
+                    "INSERT INTO transactions
+                     (account_id, txn_type, amount, balance_after, description, reference, txn_date)
+                     VALUES (?, 'credit', ?, ?, ?, ?, ?)"
+                )->execute([
+                    $to_id, $amount, $new_to_bal,
+                    "Payment received from {$from_acc['account_name']}", $ref, $now
+                ]);
 
-            $pdo->commit();
-            audit('payment_made', $uid);
+                // Payment record
+                $pdo->prepare(
+                    "INSERT INTO payments (user_id, from_account_id, to_account_id, amount)
+                     VALUES (?, ?, ?, ?)"
+                )->execute([$uid, $from_id, $to_id, $amount]);
 
-            // Update local values for display
-            $from_acc['balance']           = $new_from_bal;
-            $to_acc['balance']             = $new_to_bal;
-            $to_acc['last_payment']        = $amount;
-            $to_acc['last_payment_date']   = $now;
+                $pdo->commit();
+                audit('payment_made_otp', $uid);
 
-        } catch (Throwable $e) {
-            $pdo->rollBack();
-            $error = 'Payment processing failed. Please try again. (' . $e->getMessage() . ')';
+                // Update local values for display
+                $from_acc['balance']           = $new_from_bal;
+                $to_acc['balance']             = $new_to_bal;
+                $to_acc['last_payment']        = $amount;
+                $to_acc['last_payment_date']   = $now;
+
+            } catch (Throwable $e) {
+                $pdo->rollBack();
+                $error = 'Payment processing failed. Please try again. (' . $e->getMessage() . ')';
+            }
         }
     }
 }
@@ -126,6 +143,54 @@ if ($error):
   </a>
 </main>
 
+<?php require_once __DIR__ . '/../layout/footer.php';
+
+elseif ($require_otp):
+// ─── OTP PROMPT ───
+?>
+<main class="page-wrapper" style="max-width:500px">
+  <div class="card" style="padding:2.5rem; text-align:center;">
+    <div style="width:64px;height:64px;border-radius:50%;background:rgba(212,168,67,.15);
+                display:flex;align-items:center;justify-content:center;margin:0 auto 1.5rem">
+      <i class="bi bi-shield-lock" style="font-size:2rem;color:var(--gold)"></i>
+    </div>
+    <h2 style="font-family:'Outfit',sans-serif;font-size:1.4rem;font-weight:700;margin-bottom:.5rem">
+      Verification Required
+    </h2>
+    <p class="text-muted" style="margin-bottom:1.5rem; font-size:.9rem;">
+      Please enter the 6-digit OTP sent to your registered email to complete the payment of <strong><?= fmt_inr($amount) ?></strong>.
+    </p>
+
+    <?php if ($otp_error): ?>
+      <div class="alert alert-danger" style="text-align:left; font-size:.85rem; margin-bottom:1rem;">
+        <i class="bi bi-exclamation-triangle"></i> <?= htmlspecialchars($otp_error) ?>
+      </div>
+    <?php endif; ?>
+
+    <form method="POST">
+      <input type="hidden" name="to_account_id"   value="<?= $to_id ?>">
+      <input type="hidden" name="from_account_id" value="<?= $from_id ?>">
+      <input type="hidden" name="amount"          value="<?= $amount ?>">
+      <input type="hidden" name="confirm"         value="1">
+      <input type="hidden" name="verify_step"     value="1">
+
+      <div class="form-group" style="text-align:left;">
+        <label class="form-label">Enter OTP</label>
+        <input type="text" name="otp_code" class="form-control" 
+               pattern="\d{6}" maxlength="6" inputmode="numeric" 
+               placeholder="▪ ▪ ▪ ▪ ▪ ▪" required autofocus
+               style="letter-spacing: .5rem; font-size: 1.25rem; font-family: monospace; text-align: center;">
+      </div>
+
+      <div style="display:flex;gap:.75rem;margin-top:1.5rem;">
+        <a href="/Banking/payments/index.php" class="btn btn-outline" style="flex:1;">Cancel</a>
+        <button type="submit" class="btn btn-primary" style="flex:1;">
+          <i class="bi bi-check-circle"></i> Verify & Pay
+        </button>
+      </div>
+    </form>
+  </div>
+</main>
 <?php require_once __DIR__ . '/../layout/footer.php';
 
 elseif ($confirm && !$error):

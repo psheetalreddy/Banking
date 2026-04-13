@@ -191,7 +191,7 @@ CREATE TABLE IF NOT EXISTS otp_log (
   otp_id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id        INT UNSIGNED NOT NULL,
   otp_code       CHAR(6)      NOT NULL,
-  purpose        ENUM('login','reset') NOT NULL DEFAULT 'login',
+  purpose        ENUM('login','reset','transaction') NOT NULL DEFAULT 'login',
   expires_at     DATETIME     NOT NULL,
   used           TINYINT(1)   NOT NULL DEFAULT 0,
   created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
