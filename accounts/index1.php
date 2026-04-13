@@ -1,7 +1,6 @@
 <?php
 /**
  * accounts/index.php – Account categories accordion
- * Updated: "View Details" now links to detail.php, "Add Account" button added.
  */
 $page_title = 'Account Management';
 require_once __DIR__ . '/../layout/header.php';
@@ -10,9 +9,10 @@ require_login();
 $uid = current_user_id();
 $pdo = get_db();
 
-// Handle unlink via POST
+// Handle unlink
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['unlink'])) {
     $acc_id = (int)$_POST['account_id'];
+    // Verify ownership
     $chk = $pdo->prepare("SELECT account_id FROM accounts WHERE account_id=? AND user_id=?");
     $chk->execute([$acc_id, $uid]);
     if ($chk->fetch()) {
@@ -27,7 +27,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['unlink'])) {
 $stmt = $pdo->prepare(
     "SELECT a.account_id, a.account_number, a.account_name, a.balance,
             a.credit_limit, a.due_date, a.next_payment, a.category_id,
-            a.last_payment, a.last_payment_date,
             ac.name AS category, ac.icon, ac.display_order
      FROM accounts a
      JOIN account_categories ac ON a.category_id = ac.category_id
@@ -42,57 +41,15 @@ $grouped = [];
 foreach ($all_accounts as $acc) {
     $grouped[$acc['category']][] = $acc;
 }
-
-// Total count for header
-$total_accounts = count($all_accounts);
 ?>
 
 <main class="page-wrapper">
-  <div class="flex-between mb-3">
-    <h1 class="page-title"><i class="bi bi-bank2"></i> Account Management</h1>
-    <a href="/Banking/accounts/add_account.php" class="btn btn-primary">
-      <i class="bi bi-plus-circle"></i> Add / Link Account
-    </a>
-  </div>
-
-  <!-- Summary stats row -->
-  <?php if ($total_accounts > 0):
-    $total_assets = 0; $total_liabilities = 0;
-    foreach ($all_accounts as $a) {
-      if ($a['balance'] >= 0) $total_assets += $a['balance'];
-      else $total_liabilities += abs($a['balance']);
-    }
-    $net = $total_assets - $total_liabilities;
-  ?>
-  <div class="grid-3 mb-3" style="grid-template-columns:repeat(auto-fill,minmax(200px,1fr))">
-    <div class="stat-card">
-      <div class="stat-label"><i class="bi bi-bank2"></i> Total Accounts</div>
-      <div class="stat-value"><?= $total_accounts ?></div>
-      <div class="stat-sub">Linked &amp; Active</div>
-      <i class="bi bi-bank2 stat-icon"></i>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label"><i class="bi bi-arrow-up-circle"></i> Total Assets</div>
-      <div class="stat-value positive"><?= fmt_inr($total_assets) ?></div>
-      <div class="stat-sub">Savings, Investments, etc.</div>
-      <i class="bi bi-piggy-bank stat-icon"></i>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label"><i class="bi bi-arrow-down-circle"></i> Total Liabilities</div>
-      <div class="stat-value negative"><?= fmt_inr($total_liabilities) ?></div>
-      <div class="stat-sub">Loans, Credit Cards</div>
-      <i class="bi bi-credit-card stat-icon"></i>
-    </div>
-  </div>
-  <?php endif; ?>
+  <h1 class="page-title"><i class="bi bi-bank2"></i> Account Management</h1>
 
   <?php if (empty($grouped)): ?>
     <div class="card text-center" style="padding:3rem">
       <i class="bi bi-bank2" style="font-size:3rem;color:var(--text-muted)"></i>
-      <p class="text-muted mt-2">No accounts linked to your profile yet.</p>
-      <a href="/Banking/accounts/add_account.php" class="btn btn-primary mt-2">
-        <i class="bi bi-plus-circle"></i> Link Your First Account
-      </a>
+      <p class="text-muted mt-2">No accounts linked to your profile.</p>
     </div>
   <?php else: ?>
 
@@ -107,7 +64,7 @@ $total_accounts = count($all_accounts);
         <div>
           <div class="accordion-cat-name"><?= htmlspecialchars($category) ?></div>
           <div class="accordion-meta">
-            <?= count($accounts) ?> account<?= count($accounts) > 1 ? 's' : '' ?> &nbsp;·&nbsp;
+            <?= count($accounts) ?> account<?= count($accounts)>1?'s':'' ?> &nbsp;·&nbsp;
             Total: <strong class="<?= $total >= 0 ? 'text-success' : 'text-danger' ?>"><?= fmt_inr($total) ?></strong>
           </div>
         </div>
@@ -124,18 +81,13 @@ $total_accounts = count($all_accounts);
           <?php if ($acc['due_date']): ?>
             <div style="font-size:.75rem;color:var(--warning)">
               <i class="bi bi-calendar-event"></i> Due: <?= fmt_date($acc['due_date']) ?>
-              &nbsp;|&nbsp; Min. Payment: <?= fmt_inr($acc['next_payment'] ?? 0) ?>
+              &nbsp;|&nbsp; Next Payment: <?= fmt_inr($acc['next_payment'] ?? 0) ?>
             </div>
           <?php endif; ?>
           <?php if ($acc['credit_limit']): ?>
             <div style="font-size:.75rem;color:var(--text-muted)">
               Limit: <?= fmt_inr($acc['credit_limit']) ?>
               &nbsp;|&nbsp; Available: <?= fmt_inr($acc['credit_limit'] + $acc['balance']) ?>
-            </div>
-          <?php endif; ?>
-          <?php if ($acc['last_payment']): ?>
-            <div style="font-size:.74rem;color:var(--text-muted)">
-              Last payment: <?= fmt_inr($acc['last_payment']) ?> on <?= fmt_date($acc['last_payment_date']) ?>
             </div>
           <?php endif; ?>
         </div>
@@ -145,33 +97,18 @@ $total_accounts = count($all_accounts);
             <?= fmt_inr($acc['balance']) ?>
           </div>
           <div class="acc-actions">
-
-            <!-- View Details — NOW WORKING -->
-            <a href="/Banking/accounts/detail.php?id=<?= $acc['account_id'] ?>"
-               class="btn btn-outline btn-sm" title="View Details">
+            <!-- View Details – disabled (Sprint-2) -->
+            <span class="btn btn-outline btn-sm under-construction"
+                  title="Coming in Sprint-2">
               <i class="bi bi-eye"></i>
-              <span style="font-size:.78rem">Details</span>
-            </a>
-
-            <!-- Edit -->
-            <a href="/Banking/accounts/edit_account.php?id=<?= $acc['account_id'] ?>"
-               class="btn btn-outline btn-sm" title="Settings">
-              <i class="bi bi-gear"></i>
-            </a>
-
-            <!-- Quick Pay for CC/HL -->
-            <?php if (in_array($acc['category'], ['Credit Card', 'Home Loan'])): ?>
-            <a href="/Banking/payments/index.php?pay_account=<?= $acc['account_id'] ?>"
-               class="btn btn-success btn-sm" title="Make Payment">
-              <i class="bi bi-credit-card"></i>
-            </a>
-            <?php endif; ?>
+              <span style="font-size:.72rem">Under Construction</span>
+            </span>
 
             <!-- Unlink -->
             <form method="POST" style="display:inline">
               <input type="hidden" name="account_id" value="<?= $acc['account_id'] ?>">
               <input type="hidden" name="unlink" value="1">
-              <button type="submit" class="btn btn-danger btn-sm" title="Unlink Account"
+              <button type="submit" class="btn btn-danger btn-sm"
                       data-confirm="Unlink account <?= htmlspecialchars($acc['account_number']) ?>?">
                 <i class="bi bi-unlink"></i>
               </button>
@@ -180,13 +117,6 @@ $total_accounts = count($all_accounts);
         </div>
       </div>
       <?php endforeach; ?>
-
-      <!-- Add account to this category shortcut -->
-      <div style="padding:.5rem 0">
-        <a href="/Banking/accounts/add_account.php" class="btn btn-outline btn-sm" style="font-size:.78rem">
-          <i class="bi bi-plus"></i> Add another <?= htmlspecialchars($category) ?> account
-        </a>
-      </div>
     </div>
   </div>
   <?php endforeach; ?>

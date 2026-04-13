@@ -69,6 +69,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if (!$error) {
                 audit('profile_updated', $uid);
+                // Update session with new name
+                $_SESSION['customer_name'] = $first;
                 set_flash('success', 'Profile updated successfully.');
                 redirect('/Banking/profile/view.php');
             }

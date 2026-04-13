@@ -46,8 +46,10 @@ if (!$error) {
 $confirmed = isset($_POST['confirm']) && $_POST['confirm'] === '1';
 
 if (!$error && $confirmed) {
-    // Check balance
-    if ($from_acc['balance'] < $amount) {
+    // Check transfer amount
+    if ($amount <= 100) {
+        $error = 'Transfer amount must be greater than ₹100.';
+    } elseif ($from_acc['balance'] < $amount) {
         $error = 'Insufficient balance. Available balance: ' . fmt_inr($from_acc['balance']);
     } else {
         $pdo->beginTransaction();
@@ -157,7 +159,7 @@ if (!$error && $confirmed) {
         <i class="bi bi-arrow-left"></i> Cancel
       </a>
       <button type="submit" class="btn btn-primary btn-lg"
-              <?= $from_acc['balance'] < $amount ? 'disabled' : '' ?>>
+              <?= ($amount <= 100 || $from_acc['balance'] < $amount) ? 'disabled' : '' ?>>
         <i class="bi bi-check-circle"></i> Confirm Transfer
       </button>
     </div>
