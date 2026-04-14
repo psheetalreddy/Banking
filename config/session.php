@@ -23,6 +23,18 @@ function require_login(): void {
         header('Location: /Banking/auth/login.php?redirect=' . $return);
         exit;
     }
+
+    $timeout = 20 * 60; // 20 minutes
+    if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity'] > $timeout)) {
+        logout();
+        session_start();
+        set_flash('danger', 'Your session has expired due to inactivity. Please login again.');
+        $return = urlencode($_SERVER['REQUEST_URI'] ?? '/Banking/dashboard.php');
+        header('Location: /Banking/auth/login.php?redirect=' . $return);
+        exit;
+    }
+
+    $_SESSION['last_activity'] = time();
 }
 
 /** Return the currently logged-in customer full name (cached in session). */
