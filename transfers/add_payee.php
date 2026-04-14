@@ -24,14 +24,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif (!preg_match('/^[A-Z]{3}\d{10}$/', $accno)) {
         $error = 'Enter a valid account number (e.g. SAV0009876543).';
     } else {
-        $pdo->prepare(
-            "INSERT INTO payees (user_id, payee_name, bank_name, branch_name, account_number, ifsc_code)
-             VALUES (?, ?, ?, ?, ?, ?)"
-        )->execute([$uid, $name, $bank, $branch, $accno, $ifsc]);
-        $new_id = $pdo->lastInsertId();
-        audit('payee_added', $uid);
-        set_flash('success', "Payee \"$name\" added successfully.");
-        redirect('/Banking/transfers/index.php?payee_id=' . $new_id);
+        $acc_check = $pdo->prepare("SELECT 1 FROM accounts WHERE account_number = ?");
+        $acc_check->execute([$accno]);
+        if (!$acc_check->fetch()) {
+            $error = "Account doesn't exist.";
+        } else {
+            $pdo->prepare(
+                "INSERT INTO payees (user_id, payee_name, bank_name, branch_name, account_number, ifsc_code)
+                 VALUES (?, ?, ?, ?, ?, ?)"
+            )->execute([$uid, $name, $bank, $branch, $accno, $ifsc]);
+            $new_id = $pdo->lastInsertId();
+            audit('payee_added', $uid);
+            set_flash('success', "Payee \"$name\" added successfully.");
+            redirect('/Banking/transfers/index.php?payee_id=' . $new_id);
+        }
     }
 }
 ?>
