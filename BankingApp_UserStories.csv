@@ -1,0 +1,17 @@
+﻿User Story ID,As a <type of user>,I want to <perform some task>,so that I can <achieve some goal>
+1,Scrum Master,view the availability of all team members in a single dashboard,quickly schedule emergency meetings without issues and delays.
+2,Scrum Master,automatically track task completion and sprint progress,present accurate status updates to the client.
+3,Scrum Master,be notified when tasks are blocked or overdue,intervene early and resolve issues.
+4,Scrum Master,the system to generate sprint summary reports,stakeholders can clearly understand team velocity and delivery status.
+5,Product Owner,view all user stories with their current development status,track progress and plan upcoming releases
+6,Product Owner,define and prioritize product backlog items,the team delivers maximum value to customers
+7,Developer,"implement secure login using user ID, password and OTP.",Our team can ensure only authenticated users can access the system
+8,Developer,Implement proper error handling and logging.,Our team can Easily identify and fix issues in the application.
+9,Developer,Optimize the application’s performance and fix issues, Improve system efficiency and user satisfaction
+10,Developer, Follow coding standards and best practices,Ensure code quality and maintainability.
+11,Developer,design and implement a role-based access control (RBAC) system,"different users (admin, manager, user) can access only the features permitted to their role, improving system security and usability"
+12,Developer,implement an audit trail for critical user actions,all important activities can be tracked for accountability and compliance
+13,Tester,validate application functionality,detect defects and bugs early.
+14,Tester,log and track defects with severity and priority,fix critical banking issues before release.
+15,Tester,perform regression testing after every code change,existing banking functionalities are not affected
+,,,
